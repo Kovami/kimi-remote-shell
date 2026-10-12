@@ -1,0 +1,29 @@
+{
+  "name": "kimi-remote-shell",
+  "version": "0.1.0",
+  "description": "Run shell commands on a remote host over SSH (activated by the kimi-remote-shell launcher)",
+  "interface": {
+    "displayName": "Kimi Remote Shell",
+    "shortDescription": "Redirect shell execution to a remote host over SSH with Mutagen file sync"
+  },
+  "mcpServers": {
+    "remote-shell": {
+      "command": "./server.mjs",
+      "toolTimeoutMs": 600000,
+      "startupTimeoutMs": 30000
+    }
+  },
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node ./hooks/block-local-bash.mjs",
+      "timeout": 5
+    },
+    {
+      "event": "UserPromptSubmit",
+      "command": "node ./hooks/remote-context.mjs",
+      "timeout": 15
+    }
+  ]
+}

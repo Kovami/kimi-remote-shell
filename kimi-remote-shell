@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# kimi-remote-shell — redirect Kimi Code's shell commands to a remote machine
+#
+# Usage:
+#   kimi-remote-shell [user@]host[:/path] [kimi-cmd] [kimi args...]
+#
+set -euo pipefail
+
+[[ $# -eq 0 ]] && { echo "ℹ️ kimi-remote-shell [user@]host[:/path] [kimi-cmd] [kimi args...]" >&2; exit 1; }
+
+dest="$1"
+shift
+
+kimi_bin="kimi"
+if [[ $# -ge 1 && "$1" != -* && "$1" != \"* && "$1" != \'* ]]; then
+    # Possible custom kimi command. Validate via the user's shell
+    # (so aliases/functions from rc files work).
+    if [[ -n "${SHELL:-}" ]] && "$SHELL" -c "command -v '$1' >/dev/null 2>&1"; then
+        kimi_bin="$1"
+        shift
+    elif command -v "$1" &>/dev/null; then
+        kimi_bin="$1"
+        shift
+    fi
+fi
+
+if [[ "$kimi_bin" != "kimi" ]]; then
+    echo "🌙 Using kimi command '$kimi_bin'"
+fi
+
+if [[ "$dest" == *:* ]]; then
+    host="${dest%%:*}"
+    remote_path="${dest#*:}"
+else
+    host="$dest"
+    remote_path=""
+fi
+
+plugin_root="${KIMI_CODE_HOME:-$HOME/.kimi-code}/plugins/managed/kimi-remote-shell"
+if [[ ! -f "$plugin_root/kimi.plugin.json" ]]; then
+    echo "⚠️ Kimi plugin 'kimi-remote-shell' is not installed." >&2
+    echo "   Install it once with:  /plugins install $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugin" >&2
+    echo "   or run:                $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install.sh" >&2
+    exit 1
+fi
+
+command -v mutagen &>/dev/null || { echo "⚠️ mutagen is required but not found in PATH" >&2; exit 1; }
+
+echo "📡 Running shell commands remotely on $host"
+export KIMI_REMOTE_HOST="$host"
+
+session_dir=$(mktemp -d /tmp/kimi-remote-shell.XXXXXX)
+export KIMI_REMOTE_SHELL_DIR="$session_dir"
+export MUTAGEN_DATA_DIRECTORY="$session_dir/mutagen"
+mkdir -p "$MUTAGEN_DATA_DIRECTORY"
+
+export KIMI_REMOTE_SSH_OPTIONS="-o StrictHostKeyChecking=yes -o ControlMaster=auto -o ControlPath=$session_dir/ssh-%C -o ControlPersist=yes"
+
+remote_tmpdir="/tmp/$(basename "$session_dir")"
+export KIMI_REMOTE_TMPDIR="$remote_tmpdir"
+
+teardown() {
+    echo -n "🧹 Cleaning up remote session "
+    mutagen sync terminate --all >/dev/null 2>&1 || true
+    mutagen daemon stop 2>/dev/null || true
+    ssh $KIMI_REMOTE_SSH_OPTIONS "$host" "rm -rf '$remote_tmpdir'" 2>/dev/null || true
+    ssh -O exit $KIMI_REMOTE_SSH_OPTIONS "$host" 2>/dev/null || true
+    rm -rf "$session_dir"
+    echo "✅"
+}
+trap teardown EXIT
+
+ssh $KIMI_REMOTE_SSH_OPTIONS "$host" "mkdir -p '$remote_tmpdir'"
+
+mutagen_options=(--sync-mode=two-way-resolved)
+
+# Optional user-provided Mutagen config file.
+config_file="$(pwd -P)/.kimi-code/remote-shell/mutagen.yml"
+[[ -f "$config_file" ]] && mutagen_options+=(-c "$config_file")
+
+# Sync the project directory if a remote path was given.
+if [[ -n "$remote_path" ]]; then
+    project_dir="$(pwd -P)"
+    echo "🗂️ Syncing $project_dir ↔ $host:$remote_path"
+    mutagen sync terminate kimi-project 2>/dev/null || true
+    ssh $KIMI_REMOTE_SSH_OPTIONS "$host" "mkdir -p '$remote_path'"
+    mutagen sync create \
+        --name=kimi-project \
+        "${mutagen_options[@]}" \
+        "$project_dir" \
+        "$host:$remote_path" >/dev/null
+    export KIMI_LOCAL_PATH="$project_dir"
+    export KIMI_REMOTE_PATH="$remote_path"
+fi
+
+kimi_args=()
+[[ "$(basename "$0")" == *-yolo ]] && kimi_args+=(--yolo)
+kimi_args+=("$@")
+
+if [[ -n "${SHELL:-}" ]]; then
+    printf -v cmd '%q ' "$kimi_bin" ${kimi_args[@]+"${kimi_args[@]}"}
+    "$SHELL" -l -c "exec $cmd" --
+else
+    exec "$kimi_bin" ${kimi_args[@]+"${kimi_args[@]}"}
+fi
