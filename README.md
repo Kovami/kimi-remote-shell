@@ -12,10 +12,19 @@
 ## Установка
 
 ```sh
-./install.sh        # устанавливает плагин в ~/.kimi-code/plugins
+# Homebrew (ставит и mutagen)
+brew install Kovami/kimi-remote-shell/kimi-remote-shell
+
+# или одной командой без brew (macOS/Linux)
+curl -fsSL https://raw.githubusercontent.com/Kovami/kimi-remote-shell/main/install.sh | bash
 ```
 
-Требования: `mutagen`, SSH-доступ к удалённому хосту по ключу.
+Плагин Kimi ставится и обновляется автоматически при запуске `kimi-remote-shell`.
+Для curl-варианта `mutagen` нужно поставить самому; команды линкуются в `~/.local/bin`
+(повторный запуск команды обновляет установку, `KRS_REF=v0.1.0` — закрепить версию).
+Из клона репозитория: `./install.sh` (только плагин).
+
+Требования: `mutagen`, `node`, SSH-доступ к удалённому хосту по ключу.
 
 ## Использование
 

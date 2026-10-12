@@ -37,11 +37,25 @@ else
     remote_path=""
 fi
 
+# Locate the install dir (resolving symlinks: -yolo link, brew bin link).
+self="${BASH_SOURCE[0]}"
+while [[ -L "$self" ]]; do
+    link="$(readlink "$self")"
+    [[ "$link" == /* ]] && self="$link" || self="$(dirname "$self")/$link"
+done
+self_dir="$(cd "$(dirname "$self")" && pwd)"
+installer=""
+for d in "$self_dir" "$self_dir/../libexec"; do
+    [[ -f "$d/install.sh" && -f "$d/plugin/kimi.plugin.json" ]] && { installer="$d/install.sh"; plugin_src="$d/plugin"; break; }
+done
+
+# Install / update the Kimi plugin when missing or different from the bundled copy.
 plugin_root="${KIMI_CODE_HOME:-$HOME/.kimi-code}/plugins/managed/kimi-remote-shell"
-if [[ ! -f "$plugin_root/kimi.plugin.json" ]]; then
-    echo "⚠️ Kimi plugin 'kimi-remote-shell' is not installed." >&2
-    echo "   Install it once with:  /plugins install $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugin" >&2
-    echo "   or run:                $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install.sh" >&2
+if [[ -n "$installer" ]] && ! diff -rq "$plugin_src" "$plugin_root" &>/dev/null; then
+    echo "🔌 Installing Kimi plugin 'kimi-remote-shell'" >&2
+    "$installer" >&2 || exit 1
+elif [[ ! -f "$plugin_root/kimi.plugin.json" ]]; then
+    echo "⚠️ Kimi plugin 'kimi-remote-shell' is not installed and install.sh was not found." >&2
     exit 1
 fi
 

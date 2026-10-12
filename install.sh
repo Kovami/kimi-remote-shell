@@ -1,15 +1,44 @@
 #!/usr/bin/env bash
 #
-# install.sh — install the kimi-remote-shell plugin into Kimi Code
-# (equivalent of `/plugins install <path>`, but scriptable).
+# install.sh — install kimi-remote-shell.
+#
+#   curl -fsSL https://raw.githubusercontent.com/Kovami/kimi-remote-shell/main/install.sh | bash
+#
+# From a checkout (or when called by the launcher) it only installs the Kimi
+# plugin into ~/.kimi-code. When piped from curl it first downloads the repo to
+# $KRS_HOME and links the commands into $KRS_BIN_DIR.
+#
+# Env: KRS_REF (branch/tag, default main), KRS_HOME, KRS_BIN_DIR, KIMI_CODE_HOME.
 #
 set -euo pipefail
 
-src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plugin"
+repo="Kovami/kimi-remote-shell"
+ref="${KRS_REF:-main}"
+src_dir=""
+[[ -n "${BASH_SOURCE[0]:-}" ]] && src_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ ! -f "$src_dir/plugin/kimi.plugin.json" ]]; then
+    command -v curl &>/dev/null || { echo "curl is required" >&2; exit 1; }
+    krs_home="${KRS_HOME:-$HOME/.local/share/kimi-remote-shell}"
+    bin_dir="${KRS_BIN_DIR:-$HOME/.local/bin}"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    echo "⬇️  Downloading $repo@$ref"
+    curl -fsSL "https://github.com/$repo/archive/$ref.tar.gz" | tar -xz -C "$tmp" --strip-components=1
+    rm -rf "$krs_home"
+    mkdir -p "$krs_home" "$bin_dir"
+    cp -R "$tmp/." "$krs_home/"
+    ln -sf "$krs_home/kimi-remote-shell" "$bin_dir/kimi-remote-shell"
+    ln -sf "$krs_home/kimi-remote-shell" "$bin_dir/kimi-remote-shell-yolo"
+    echo "✅ Commands linked into $bin_dir"
+    case ":$PATH:" in *":$bin_dir:"*) ;; *) echo "⚠️ $bin_dir is not in PATH" >&2 ;; esac
+    command -v mutagen &>/dev/null || echo "⚠️ mutagen not found — install it: brew install mutagen-io/mutagen/mutagen" >&2
+    exec "$krs_home/install.sh"
+fi
+
+src="$src_dir/plugin"
 kimi_home="${KIMI_CODE_HOME:-$HOME/.kimi-code}"
 dest="$kimi_home/plugins/managed/kimi-remote-shell"
-
-[[ -f "$src/kimi.plugin.json" ]] || { echo "plugin/ not found next to install.sh" >&2; exit 1; }
 
 mkdir -p "$(dirname "$dest")"
 rm -rf "$dest"
@@ -44,8 +73,6 @@ data.plugins.push({
 const tmp = file + ".tmp";
 fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
 fs.renameSync(tmp, file);
-console.log("installed.json updated:", file);
 EOF
 
-echo "✅ Plugin installed to $dest"
-echo "   Start a new session (or run /reload) for it to take effect."
+echo "✅ Kimi plugin installed to $dest"
